@@ -1,0 +1,9 @@
+faster-whisper>=1.2,<2
+sounddevice>=0.5
+soundfile>=0.12
+numpy>=1.26
+pyyaml>=6.0
+jiwer>=3.0
+# GPU libraries (Windows and Linux). Skip on CPU-only machines.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
