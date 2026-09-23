@@ -1,0 +1,36 @@
+# STT pipeline configuration.
+# Relative paths are resolved from the project folder, so this file works on Windows and Ubuntu.
+
+model:
+  size: small.en          # tiny.en | base.en | small.en | medium.en | large-v3
+  device: auto            # auto (GPU if available, else CPU) | cuda | cpu
+  compute_type: auto      # auto: float16 on GPU, int8 on CPU
+  download_dir: models
+  language: en
+  beam_size: 5
+  initial_prompt: ""      # optional vocabulary hint, e.g. "kitchen, lab, office, coffee"
+
+audio:
+  sample_rate: 16000      # Whisper expects 16 kHz mono
+  input_device: null      # null = system default mic, or a device index / name
+  max_record_seconds: 15  # safety cap on one recording
+
+vad:
+  enabled: true
+  min_silence_ms: 500     # pause length that splits speech segments
+  speech_pad_ms: 200      # padding kept around detected speech
+
+gate:
+  reject_empty: true          # never forward empty transcripts
+  max_no_speech_prob: 0.6     # above this, treat as noise, not speech
+  min_confidence: 0.0         # 0 = forward everything (per Sep 23 meeting); raise later if needed
+
+output:
+  sinks: [console, jsonl]     # any of: console, jsonl, ros2
+  jsonl_path: outputs/commands.jsonl
+  save_audio: false           # keep recordings for debugging / evaluation only
+  audio_dir: recordings
+
+ros2:
+  topic: /stt/command         # confirm with VLN team
+  node_name: stt_publisher
