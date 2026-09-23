@@ -27,6 +27,7 @@ class ModelConfig:
     language: str = "en"
     beam_size: int = 5
     initial_prompt: str = ""
+    word_timestamps: bool = True
 
 
 @dataclass
@@ -34,7 +35,7 @@ class AudioConfig:
     sample_rate: int = 16000
     input_device: Optional[Union[int, str]] = None
     max_record_seconds: float = 15.0
-
+    pre_roll_seconds: float = 0.5
 
 @dataclass
 class VadConfig:
