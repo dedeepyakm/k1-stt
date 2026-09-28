@@ -49,6 +49,7 @@ class MicRecorder:
         self.post_roll_seconds = post_roll_seconds
         self.limit_reached = threading.Event()   # set if max_seconds is hit
         self.last_pre_roll_seconds = 0.0          # pre-roll attached to the last recording
+        self.level = 0.0                          # live input level (RMS), for the UI meter
         self._stream = None
         self._capture_rate = sample_rate
         self._recording = False
@@ -74,6 +75,7 @@ class MicRecorder:
     # ---- audio callback (runs on the audio thread) ---------------------------
     def _callback(self, indata, frames, time_info, status) -> None:
         chunk = indata[:, 0].copy()
+        self.level = float(np.sqrt(np.mean(chunk * chunk))) if chunk.size else 0.0
         with self._lock:
             if self._recording:
                 if self._n_samples >= int(self.max_seconds * self._capture_rate):

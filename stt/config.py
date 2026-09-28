@@ -38,6 +38,7 @@ class AudioConfig:
     pre_roll_seconds: float = 0.5
     post_roll_seconds: float = 0.4
 
+
 @dataclass
 class VadConfig:
     enabled: bool = True
@@ -68,6 +69,13 @@ class Ros2Config:
 
 
 @dataclass
+class UiConfig:
+    host: str = "127.0.0.1"
+    port: int = 8765
+    history_size: int = 20
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -75,6 +83,7 @@ class Config:
     gate: GateConfig = field(default_factory=GateConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     ros2: Ros2Config = field(default_factory=Ros2Config)
+    ui: UiConfig = field(default_factory=UiConfig)
 
 
 # Environment variable -> (section, key). Lets you switch settings per machine

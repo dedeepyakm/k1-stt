@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K1 Voice Command Console</title>
+<style>
+  :root {
+    --navy: #140F51; --purple: #534AB7; --lavender: #EEEDF8;
+    --bg: #F6F6FB; --card: #FFFFFF; --ink: #1B1A2E; --muted: #6B6A80; --line: #E3E2EE;
+    --green: #1F8A5B; --green-bg: #E6F4EC; --red: #C23B3B; --red-bg: #FBEAEA;
+    --amber: #A86A12; --amber-bg: #FDF3E1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Segoe UI", system-ui, -apple-system, Roboto, Ubuntu, sans-serif; }
+
+  header { background: var(--navy); color: #fff; padding: 18px 28px;
+           display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .brand h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  .brand p { margin: 3px 0 0; font-size: 13px; opacity: .75; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 15px; border-radius: 999px;
+          background: rgba(255,255,255,.12); font-size: 13px; font-weight: 600; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9FE3BF; }
+  .pill.listening .dot { background: #FF6B6B; animation: blink 1s infinite; }
+  .pill.processing .dot { background: #FFD166; }
+  .pill.offline .dot { background: #999; }
+  @keyframes blink { 50% { opacity: .3; } }
+
+  main { max-width: 1180px; margin: 24px auto; padding: 0 20px;
+         display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .card + .card { margin-top: 20px; }
+  .card h2 { margin: 0 0 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+             color: var(--muted); font-weight: 600; }
+
+  .control { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 18px 0 6px; }
+  #talk { width: 170px; height: 170px; border-radius: 50%; border: none; cursor: pointer;
+          background: var(--purple); color: #fff; font: inherit; font-size: 15px; font-weight: 600;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+          box-shadow: 0 10px 30px rgba(83,74,183,.35); transition: transform .12s, background .2s; }
+  #talk:hover:not(:disabled) { transform: scale(1.03); }
+  #talk:disabled { cursor: progress; opacity: .75; }
+  #talk.listening { background: var(--red); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(194,59,59,.45); }
+                     70% { box-shadow: 0 0 0 24px rgba(194,59,59,0); }
+                     100% { box-shadow: 0 0 0 0 rgba(194,59,59,0); } }
+  #talk svg { width: 44px; height: 44px; }
+  .timer { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 600; color: var(--navy); }
+  .meter { width: 100%; max-width: 420px; height: 8px; background: var(--lavender);
+           border-radius: 99px; overflow: hidden; }
+  .meter span { display: block; height: 100%; width: 0; transition: width .08s;
+                background: linear-gradient(90deg, var(--purple), #8E86E0); }
+  .hint { font-size: 13px; color: var(--muted); text-align: center; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px;
+        padding: 1px 6px; font-size: 12px; background: #fff; }
+
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px;
+           font-weight: 700; letter-spacing: .04em; }
+  .badge.ok { background: var(--green-bg); color: var(--green); }
+  .badge.no { background: var(--red-bg); color: var(--red); }
+  .transcript { font-size: 26px; line-height: 1.35; margin: 14px 0 6px; font-weight: 500; }
+  .transcript.empty { color: var(--muted); font-size: 17px; font-weight: 400; }
+  .reason { color: var(--red); font-size: 14px; margin: 0 0 8px; }
+  .note { font-size: 13px; color: var(--amber); background: var(--amber-bg);
+          padding: 8px 12px; border-radius: 8px; margin: 10px 0; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } }
+  .stat { background: var(--bg); border-radius: 10px; padding: 12px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+  .conf-bar { height: 6px; background: var(--line); border-radius: 99px; margin-top: 8px; overflow: hidden; }
+  .conf-bar span { display: block; height: 100%; }
+  .words { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  .word { padding: 4px 9px; border-radius: 6px; font-size: 14px; background: var(--green-bg); color: var(--green); }
+  .word.mid { background: var(--amber-bg); color: var(--amber); }
+  .word.low { background: var(--red-bg); color: var(--red); }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  .history { list-style: none; margin: 0; padding: 0; max-height: 440px; overflow: auto; }
+  .history li { padding: 10px 8px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 8px; }
+  .history li:hover { background: var(--bg); }
+  .history li.placeholder { cursor: default; color: var(--muted); font-size: 14px; border: none; }
+  .history .t { font-size: 14px; }
+  .history .m { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; align-items: center; }
+  .mini { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .sys dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 14px; }
+  .sys dt { color: var(--muted); }
+  .sys dd { margin: 0; font-weight: 500; }
+  .error { display: none; background: var(--red-bg); color: var(--red); padding: 10px 14px;
+           border-radius: 10px; font-size: 14px; margin-bottom: 14px; }
+  footer { text-align: center; font-size: 12px; color: var(--muted); padding: 6px 20px 28px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>K1 Voice Command Console</h1>
+    <p>Speech-to-Text for Vision-Language Navigation · AIML Robotics Lab</p>
+  </div>
+  <div id="pill" class="pill"><span class="dot"></span><span id="pill-text">Connecting</span></div>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <div id="error" class="error" role="alert"></div>
+      <div class="control">
+        <button id="talk" aria-label="Start Listening">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="12" rx="3"/>
+            <path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/>
+          </svg>
+          <span id="talk-label">Start Listening</span>
+        </button>
+        <div class="timer" id="timer">0.0 s</div>
+        <div class="meter" aria-hidden="true"><span id="level"></span></div>
+        <div class="hint">Press <kbd>Space</kbd> to start and stop · up to <span id="max">15</span> s per command</div>
+      </div>
+    </div>
+
+    <div class="card" aria-live="polite">
+      <h2>Latest command</h2>
+      <div id="result"></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>Recent commands</h2>
+      <ul id="history" class="history"></ul>
+    </div>
+    <div class="card sys">
+      <h2>System</h2>
+      <dl>
+        <dt>Model</dt><dd id="s-model">-</dd>
+        <dt>Device</dt><dd id="s-device">-</dd>
+        <dt>Outputs</dt><dd id="s-outputs">-</dd>
+        <dt>VLN link</dt><dd id="s-vln">-</dd>
+      </dl>
+    </div>
+  </aside>
+</main>
+
+<footer>Runs fully offline on this machine. Audio is never sent to external services.</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const REASONS = {
+    no_speech: "No speech detected",
+    likely_noise: "Only background noise detected",
+    low_confidence: "Confidence below threshold",
+    empty_audio: "No audio captured",
+  };
+  const LABELS = { idle: "Ready", listening: "Listening", processing: "Transcribing", offline: "Offline" };
+  let state = "idle", maxSeconds = 15, poll = null, busy = false;
+
+  async function api(path, method = "GET") {
+    const res = await fetch(path, { method });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    return data;
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;   // textContent: safe, no HTML injection
+    return e;
+  }
+
+  function showError(msg) {
+    $("error").textContent = msg || "";
+    $("error").style.display = msg ? "block" : "none";
+  }
+
+  function setState(s) {
+    state = s;
+    $("pill").className = "pill " + s;
+    $("pill-text").textContent = LABELS[s] || s;
+    const btn = $("talk");
+    btn.classList.toggle("listening", s === "listening");
+    btn.disabled = s === "processing" || s === "offline";
+    const label = s === "listening" ? "Stop Listening" : s === "processing" ? "Transcribing..." : "Start Listening";
+    $("talk-label").textContent = label;
+    btn.setAttribute("aria-label", label);
+  }
+
+  const confColour = (c) => c >= 0.7 ? "var(--green)" : c >= 0.5 ? "var(--amber)" : "var(--red)";
+
+  function stat(label, value, confidence) {
+    const box = el("div", "stat");
+    box.append(el("div", "k", label), el("div", "v", value));
+    if (confidence !== undefined) {
+      const bar = el("div", "conf-bar"), fill = el("span");
+      fill.style.width = `${Math.round(confidence * 100)}%`;
+      fill.style.background = confColour(confidence);
+      bar.appendChild(fill);
+      box.appendChild(bar);
+    }
+    return box;
+  }
+
+  function renderResult(r) {
+    const box = $("result");
+    box.innerHTML = "";
+    if (!r) {
+      box.appendChild(el("p", "transcript empty", "No commands yet. Press Start Listening and speak a command."));
+      return;
+    }
+    box.appendChild(el("span", "badge " + (r.accepted ? "ok" : "no"),
+      r.accepted ? "ACCEPTED · sent to outputs" : "REJECTED · not sent to VLN"));
+    box.appendChild(el("p", "transcript" + (r.transcript ? "" : " empty"), r.transcript || "(no transcript)"));
+    if (!r.accepted) box.appendChild(el("p", "reason", REASONS[r.reject_reason] || r.reject_reason));
+    if (r.discarded_text) box.appendChild(el("div", "note", `Ignored speech before Start: "${r.discarded_text}"`));
+
+    const stats = el("div", "stats");
+    stats.append(
+      stat("Confidence", `${Math.round(r.confidence * 100)}%`, r.confidence),
+      stat("Processing time", `${r.processing_time_s.toFixed(2)} s`),
+      stat("Speech detected", `${r.speech_duration_s.toFixed(1)} s`),
+    );
+    box.appendChild(stats);
+
+    if (r.words && r.words.length) {
+      const words = el("div", "words");
+      r.words.forEach((w) => {
+        const cls = w.probability < 0.6 ? " low" : w.probability < 0.85 ? " mid" : "";
+        const chip = el("span", "word" + cls, w.word);
+        chip.title = `${Math.round(w.probability * 100)}% confident`;
+        words.appendChild(chip);
+      });
+      box.appendChild(words);
+      box.appendChild(el("div", "legend",
+        "Word colours show model confidence: green high, amber medium, red low. Hover a word for its score."));
+    }
+  }
+
+  function renderHistory(items) {
+    const ul = $("history");
+    ul.innerHTML = "";
+    if (!items.length) {
+      ul.appendChild(el("li", "placeholder", "Commands will appear here."));
+      return;
+    }
+    items.forEach((r) => {
+      const li = el("li");
+      li.appendChild(el("div", "t", r.transcript || "(no speech)"));
+      const meta = el("div", "m"), dot = el("span", "mini");
+      dot.style.background = r.accepted ? "var(--green)" : "var(--red)";
+      meta.append(dot, el("span", "", new Date(r.timestamp).toLocaleTimeString()),
+                  el("span", "", `${Math.round(r.confidence * 100)}%`));
+      li.appendChild(meta);
+      li.onclick = () => renderResult(r);
+      ul.appendChild(li);
+    });
+  }
+
+  function startPolling() {
+    stopPolling();
+    poll = setInterval(async () => {
+      try {
+        const d = await api("/api/level");
+        $("timer").textContent = `${d.elapsed_s.toFixed(1)} s`;
+        $("level").style.width = `${Math.min(100, Math.sqrt(d.level) * 180)}%`;
+        if (state === "listening" && d.elapsed_s >= maxSeconds) toggle();   // auto-stop at the cap
+      } catch (e) { /* next poll will retry */ }
+    }, 100);
+  }
+
+  function stopPolling() {
+    if (poll) clearInterval(poll);
+    poll = null;
+    $("level").style.width = "0";
+  }
+
+  async function toggle() {
+    if (busy) return;
+    busy = true;
+    showError("");
+    try {
+      if (state === "idle") {
+        await api("/api/start", "POST");
+        setState("listening");
+        startPolling();
+      } else if (state === "listening") {
+        stopPolling();
+        setState("processing");
+        renderResult(await api("/api/stop", "POST"));
+        await refresh();
+      }
+    } catch (e) {
+      showError(e.message);
+      await refresh();
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function refresh() {
+    try {
+      const s = await api("/api/status");
+      maxSeconds = s.max_record_seconds;
+      $("max").textContent = maxSeconds;
+      $("s-model").textContent = s.model;
+      $("s-device").textContent = `${s.device.toUpperCase()} · ${s.compute_type}`;
+      $("s-outputs").textContent = s.outputs.join(", ");
+      $("s-vln").textContent = s.outputs.includes("ros2") ? `Publishing to ${s.ros2_topic}` : "Not connected (log only)";
+      renderHistory(s.history);
+      setState(s.state);
+      if (s.state === "listening") startPolling();
+      return s;
+    } catch (e) {
+      setState("offline");
+      showError("Cannot reach the STT service. Is app.py running?");
+      return null;
+    }
+  }
+
+  $("talk").addEventListener("click", () => { $("talk").blur(); toggle(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && !e.repeat) { e.preventDefault(); toggle(); }
+  });
+  document.addEventListener("keyup", (e) => { if (e.code === "Space") e.preventDefault(); });
+
+  refresh().then((s) => renderResult(s && s.history.length ? s.history[0] : null));
+</script>
+</body>
+</html>

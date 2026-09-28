@@ -37,4 +37,9 @@ output:
 ros2:
   topic: /stt/command         # confirm with VLN team
   node_name: stt_publisher
-  publish_rejected: false   # only accepted commands reach VLN
+  publish_rejected: false     # only accepted commands reach VLN
+
+ui:
+  host: 127.0.0.1             # this machine only; 0.0.0.0 would expose it on the network
+  port: 8765
+  history_size: 20            # commands shown in "Recent commands"
