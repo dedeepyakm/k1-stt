@@ -1,0 +1,25 @@
+# 20 test commands for the STT accuracy evaluation (one per line).
+# Avoid digits and words with spelling variants (metres/meters), which
+# would count as errors even when heard correctly.
+# Replace with the VLN team's test instructions once they share them.
+
+Go to the kitchen.
+Walk to the door and stop.
+Find the red chair near the window.
+Go to the kitchen and grab me a coffee.
+Turn left and walk forward.
+Stop.
+Go back to the starting point.
+Walk to the table in the middle of the room.
+Find the person wearing a blue shirt.
+Turn right at the end of the corridor.
+Go to the office and wait by the desk.
+Move closer to the screen.
+Walk past the sofa and stop near the plant.
+Go to the lab entrance.
+Find the nearest bin.
+Turn around and come back to me.
+Walk slowly to the bookshelf.
+Go through the door on your left.
+Stop and wait here.
+Take me to the meeting room.

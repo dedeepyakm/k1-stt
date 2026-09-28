@@ -12,7 +12,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-from stt.audio import MicRecorder, load_audio_file, save_wav
+from stt.audio import load_audio_file, recorder_from_config, save_wav
 from stt.config import Config, load_config
 from stt.schema import STTResult
 from stt.sinks import build_sinks
@@ -25,8 +25,7 @@ class STTPipeline:
         c = self.cfg
         # Slow parts happen here, once.
         self.transcriber = Transcriber(c.model, c.vad, c.gate, c.audio.sample_rate)
-        self.recorder = MicRecorder(c.audio.sample_rate, c.audio.input_device,
-                                    c.audio.max_record_seconds, c.audio.pre_roll_seconds)
+        self.recorder = recorder_from_config(c.audio)
         self.sinks = build_sinks(c)
 
     # ---- lifecycle -------------------------------------------------------------

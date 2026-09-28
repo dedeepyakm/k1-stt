@@ -1,13 +1,15 @@
 """Audio input: push-to-talk microphone recording and audio files.
 
 MicRecorder matches the operator UI: start() on "Start Listening",
-stop() on "Stop Listening". The mic stream stays open while the app runs and
-keeps a short rolling pre-roll buffer, so the first word is never clipped.
+stop() on "Stop Listening". The mic stream stays open while the app runs:
+- pre-roll keeps a short rolling buffer, so the first word is never clipped
+- post-roll keeps recording briefly after Stop, so the last word is never clipped
 Output is always 16 kHz mono float32, which is what Whisper expects.
 """
 from __future__ import annotations
 
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Optional, Union
@@ -26,7 +28,7 @@ def _resample(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
 
 
 class MicRecorder:
-    """Push-to-talk recorder with pre-roll.
+    """Push-to-talk recorder with pre-roll and post-roll.
 
     Usage:
         with MicRecorder() as rec:   # opens the mic once
@@ -38,11 +40,13 @@ class MicRecorder:
     def __init__(self, sample_rate: int = 16000,
                  device: Optional[Union[int, str]] = None,
                  max_seconds: float = 15.0,
-                 pre_roll_seconds: float = 0.5) -> None:
+                 pre_roll_seconds: float = 0.5,
+                 post_roll_seconds: float = 0.4) -> None:
         self.sample_rate = sample_rate
         self.device = device
         self.max_seconds = max_seconds
         self.pre_roll_seconds = pre_roll_seconds
+        self.post_roll_seconds = post_roll_seconds
         self.limit_reached = threading.Event()   # set if max_seconds is hit
         self.last_pre_roll_seconds = 0.0          # pre-roll attached to the last recording
         self._stream = None
@@ -140,6 +144,8 @@ class MicRecorder:
     def stop(self) -> np.ndarray:
         if not self._recording:
             raise RuntimeError("Not recording")
+        if self.post_roll_seconds > 0:
+            time.sleep(self.post_roll_seconds)   # capture the tail of the last word
         with self._lock:
             self._recording = False
             audio = (np.concatenate(self._chunks) if self._chunks
@@ -162,14 +168,20 @@ def save_wav(audio: np.ndarray, path: Union[str, Path], sample_rate: int = 16000
     return path
 
 
+def recorder_from_config(audio_cfg) -> MicRecorder:
+    """Build a MicRecorder from the audio section of config.yaml."""
+    a = audio_cfg
+    return MicRecorder(a.sample_rate, a.input_device, a.max_record_seconds,
+                       a.pre_roll_seconds, a.post_roll_seconds)
+
+
 if __name__ == "__main__":
     # Manual test: push-to-talk recording from the configured mic.
     from stt.config import load_config
 
     cfg = load_config()
     a = cfg.audio
-    with MicRecorder(a.sample_rate, a.input_device, a.max_record_seconds,
-                     a.pre_roll_seconds) as rec:
+    with recorder_from_config(a) as rec:
         input("Mic ready. Press Enter to START, then speak...")
         rec.start()
         input("Recording... press Enter to STOP.")
@@ -178,7 +190,7 @@ if __name__ == "__main__":
     path = save_wav(audio, cfg.output.audio_dir / "audio_test.wav", a.sample_rate)
     peak = float(np.abs(audio).max()) if audio.size else 0.0
     print(f"Duration   : {audio.size / a.sample_rate:.2f} s "
-          f"(includes {rec.last_pre_roll_seconds:.2f} s pre-roll)")
+          f"(includes {rec.last_pre_roll_seconds:.2f} s pre-roll, {a.post_roll_seconds} s post-roll)")
     print(f"Peak level : {peak:.3f}  (0 = silent, 1 = maximum)")
     print(f"Captured at: {rec.capture_rate} Hz")
     print(f"Saved      : {path}")

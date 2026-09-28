@@ -36,6 +36,7 @@ class AudioConfig:
     input_device: Optional[Union[int, str]] = None
     max_record_seconds: float = 15.0
     pre_roll_seconds: float = 0.5
+    post_roll_seconds: float = 0.4
 
 @dataclass
 class VadConfig:
