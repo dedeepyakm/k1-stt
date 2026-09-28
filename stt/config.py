@@ -63,6 +63,7 @@ class OutputConfig:
 class Ros2Config:
     topic: str = "/stt/command"
     node_name: str = "stt_publisher"
+    publish_rejected: bool = False
 
 
 @dataclass

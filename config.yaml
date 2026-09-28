@@ -36,3 +36,4 @@ output:
 ros2:
   topic: /stt/command         # confirm with VLN team
   node_name: stt_publisher
+  publish_rejected: false   # only accepted commands reach VLN

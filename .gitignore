@@ -5,3 +5,4 @@ models/
 recordings/
 outputs/
 .vscode/
+.pytest_cache/

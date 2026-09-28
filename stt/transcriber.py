@@ -4,13 +4,15 @@ from __future__ import annotations
 import math
 import time
 import warnings
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
 from stt.config import GateConfig, ModelConfig, VadConfig
 from stt.runtime import resolve_device
 from stt.schema import Segment, STTResult, Word
+
+PRE_START_GAP_S = 0.3   # pause that separates pre-Start chatter from the real command
 
 
 class Transcriber:
@@ -55,7 +57,13 @@ class Transcriber:
                                    vad_filter=False)[0])
 
     # ---- main entry point -----------------------------------------------------
-    def transcribe(self, audio: np.ndarray, source: str = "mic") -> STTResult:
+    def transcribe(self, audio: np.ndarray, source: str = "mic",
+                   start_offset_s: float = 0.0) -> STTResult:
+        """Transcribe one command.
+
+        start_offset_s: where Start was pressed within the audio (= pre-roll length).
+        Speech that ends before this point and is followed by a pause is removed.
+        """
         audio_duration = audio.size / self.sample_rate
         if audio.size == 0:
             return STTResult(accepted=False, reject_reason="empty_audio",
@@ -77,7 +85,16 @@ class Transcriber:
         segments = list(segments)               # transcription is lazy
         processing_time = time.perf_counter() - t0
 
+        words = [Word(w.word.strip(), round(w.start, 3), round(w.end, 3),
+                      round(w.probability, 4))
+                 for s in segments for w in (s.words or [])]
         transcript = " ".join(s.text.strip() for s in segments).strip()
+
+        words, dropped = self._drop_pre_start_words(words, start_offset_s)
+        if dropped:
+            transcript = " ".join(w.word for w in words).strip()
+        discarded_text = " ".join(w.word for w in dropped) or None
+
         avg_logprob, no_speech_prob = self._aggregate(segments)
         confidence = math.exp(avg_logprob) if avg_logprob is not None else 0.0
         accepted, reason = self._gate(transcript, confidence, no_speech_prob)
@@ -86,6 +103,7 @@ class Transcriber:
             transcript=transcript,
             accepted=accepted,
             reject_reason=reason,
+            discarded_text=discarded_text,
             confidence=round(confidence, 4),
             avg_logprob=None if avg_logprob is None else round(avg_logprob, 4),
             no_speech_prob=None if no_speech_prob is None else round(no_speech_prob, 4),
@@ -99,12 +117,29 @@ class Transcriber:
             segments=[Segment(round(s.start, 3), round(s.end, 3), s.text.strip(),
                               round(s.avg_logprob, 4), round(s.no_speech_prob, 4))
                       for s in segments],
-            words=[Word(w.word.strip(), round(w.start, 3), round(w.end, 3),
-                        round(w.probability, 4))
-                   for s in segments for w in (s.words or [])],
+            words=words,
         )
 
     # ---- helpers --------------------------------------------------------------
+    @staticmethod
+    def _drop_pre_start_words(words: List[Word], start_offset_s: float
+                              ) -> Tuple[List[Word], List[Word]]:
+        """Split off words spoken entirely before Start and followed by a pause.
+
+        A word that starts early but continues past Start is kept, so a
+        genuinely early first word ("Please...") is never lost.
+        """
+        if start_offset_s <= 0 or not words:
+            return words, []
+        cut = 0
+        for i, w in enumerate(words):
+            if w.end > start_offset_s:
+                break
+            next_start = words[i + 1].start if i + 1 < len(words) else None
+            if next_start is None or next_start - w.end >= PRE_START_GAP_S:
+                cut = i + 1
+        return words[cut:], words[:cut]
+
     @staticmethod
     def _aggregate(segments) -> Tuple[Optional[float], Optional[float]]:
         """Duration-weighted average of per-segment scores (longer segments count more)."""
@@ -143,6 +178,7 @@ if __name__ == "__main__":
     t = Transcriber(cfg.model, cfg.vad, cfg.gate, cfg.audio.sample_rate)
     print(f"Ready on {t.device}/{t.compute_type}")
 
+    offset = 0.0
     if len(sys.argv) > 1:
         audio, source = load_audio_file(sys.argv[1], cfg.audio.sample_rate), "file"
     else:
@@ -153,5 +189,6 @@ if __name__ == "__main__":
             rec.start()
             input("Recording... press Enter to STOP.")
             audio, source = rec.stop(), "mic"
+            offset = rec.last_pre_roll_seconds
 
-    print(t.transcribe(audio, source=source).to_json(indent=2))
+    print(t.transcribe(audio, source=source, start_offset_s=offset).to_json(indent=2))

@@ -44,6 +44,7 @@ class MicRecorder:
         self.max_seconds = max_seconds
         self.pre_roll_seconds = pre_roll_seconds
         self.limit_reached = threading.Event()   # set if max_seconds is hit
+        self.last_pre_roll_seconds = 0.0          # pre-roll attached to the last recording
         self._stream = None
         self._capture_rate = sample_rate
         self._recording = False
@@ -128,6 +129,7 @@ class MicRecorder:
             raise RuntimeError("Already recording")
         self.open()   # no-op if already open
         with self._lock:
+            self.last_pre_roll_seconds = self._pre_roll_samples / self._capture_rate
             self._chunks = list(self._pre_roll)        # seed with pre-roll
             self._n_samples = self._pre_roll_samples
             self._pre_roll.clear()
@@ -168,14 +170,15 @@ if __name__ == "__main__":
     a = cfg.audio
     with MicRecorder(a.sample_rate, a.input_device, a.max_record_seconds,
                      a.pre_roll_seconds) as rec:
-        input("Mic ready. Press Enter to START, then speak immediately...")
+        input("Mic ready. Press Enter to START, then speak...")
         rec.start()
         input("Recording... press Enter to STOP.")
         audio = rec.stop()
 
     path = save_wav(audio, cfg.output.audio_dir / "audio_test.wav", a.sample_rate)
     peak = float(np.abs(audio).max()) if audio.size else 0.0
-    print(f"Duration   : {audio.size / a.sample_rate:.2f} s (includes {a.pre_roll_seconds} s pre-roll)")
+    print(f"Duration   : {audio.size / a.sample_rate:.2f} s "
+          f"(includes {rec.last_pre_roll_seconds:.2f} s pre-roll)")
     print(f"Peak level : {peak:.3f}  (0 = silent, 1 = maximum)")
     print(f"Captured at: {rec.capture_rate} Hz")
     print(f"Saved      : {path}")

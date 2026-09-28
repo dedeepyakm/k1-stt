@@ -44,6 +44,7 @@ class STTResult:
     transcript: str = ""
     accepted: bool = False        # False = do not act on this command
     reject_reason: Optional[str] = None
+    discarded_text: Optional[str] = None   # speech before Start, removed from transcript
 
     # Quality signals
     confidence: float = 0.0       # 0 to 1, from exp(avg_logprob)
