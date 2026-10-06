@@ -4,11 +4,14 @@ Uses only the Python standard library. Binds to 127.0.0.1 by default, so the
 console is reachable only from the machine it runs on.
 
 API
-    GET  /             the console page
-    GET  /api/status   state, system info, recent commands
-    GET  /api/level    live mic level and elapsed time (polled while listening)
-    POST /api/start    Start Listening
-    POST /api/stop     Stop Listening; returns the STTResult
+    GET  /                          the console page
+    GET  /api/status                state, system info, recent commands
+    GET  /api/level                 live mic level and elapsed time (polled while listening)
+    GET  /api/commands?since=<t>    accepted commands newer than unix time t, oldest first
+                                    (add &include_rejected=1 to include rejected ones)
+    GET  /api/latest                the most recent accepted command, or {} if none
+    POST /api/start                 Start Listening
+    POST /api/stop                  Stop Listening; returns the STTResult
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from stt.pipeline import STTPipeline
 
@@ -30,7 +34,7 @@ class ConsoleState:
 
     def __init__(self, pipeline: STTPipeline, history_size: int = 20) -> None:
         self.pipeline = pipeline
-        self.history: deque = deque(maxlen=history_size)
+        self.history: deque = deque(maxlen=history_size)   # newest first
         self.state = "idle"               # idle | listening | processing
         self._started_at = 0.0
         self._lock = threading.Lock()
@@ -55,6 +59,13 @@ class ConsoleState:
     def level(self) -> dict:
         return {"state": self.state, "elapsed_s": self._elapsed(),
                 "level": round(self.pipeline.recorder.level, 4)}
+
+    def commands_since(self, since: float, include_rejected: bool = False) -> list:
+        """Commands newer than `since` (unix time), oldest first. Used by VLN to fetch."""
+        items = list(self.history)
+        items.reverse()
+        return [r for r in items
+                if r["unix_time"] > since and (r["accepted"] or include_rejected)]
 
     def start(self) -> dict:
         with self._lock:
@@ -96,13 +107,27 @@ def _make_handler(console: ConsoleState):
             self._send(status, json.dumps(data).encode("utf-8"), "application/json")
 
         def do_GET(self) -> None:
-            if self.path in ("/", "/index.html"):
+            url = urlparse(self.path)
+            query = parse_qs(url.query)
+            if url.path in ("/", "/index.html"):
                 page = (WEB_DIR / "index.html").read_bytes()
                 self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
-            elif self.path == "/api/status":
+            elif url.path == "/api/status":
                 self._json(console.info())
-            elif self.path == "/api/level":
+            elif url.path == "/api/level":
                 self._json(console.level())
+            elif url.path == "/api/commands":
+                try:
+                    since = float(query.get("since", ["0"])[0])
+                except ValueError:
+                    self._json({"error": "since must be a number"}, HTTPStatus.BAD_REQUEST)
+                    return
+                include_rejected = query.get("include_rejected", ["0"])[0] == "1"
+                self._json({"commands": console.commands_since(since, include_rejected),
+                            "server_time": time.time()})
+            elif url.path == "/api/latest":
+                commands = console.commands_since(0.0)
+                self._json(commands[-1] if commands else {})
             else:
                 self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 

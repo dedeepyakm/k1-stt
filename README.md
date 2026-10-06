@@ -14,10 +14,12 @@ The command is transcribed on the local machine and handed to the VLN module as 
 - **Pre-Start filter.** Speech that ended before Start was pressed is removed from the command and logged.
 - **Voice activity detection** trims silence around each command.
 - **Safety gate.** Empty audio and noise are rejected and never sent to VLN; everything else is forwarded with its confidence score.
-- **Structured JSON output** to the console, a JSON log file, and ROS 2.
+- **Three ways to connect to VLN:** HTTP send, HTTP fetch, or ROS 2. Chosen in `config.yaml`, no code changes.
 - **Cross-platform.** The same code runs on Windows and Ubuntu; GPU is used automatically when available, with CPU fallback.
 
-## Evaluation (28 Sep 2026)
+## Evaluation
+
+### Accuracy (28 Sep 2026)
 
 20 scripted navigation commands per speaker, 3 speakers (A, B, C), quiet room, laptop microphone.
 Word accuracy = 1 - WER, after lowercasing and removing punctuation. Target: at least 80% per speaker.
@@ -32,15 +34,30 @@ recordings stay local and are referred to only by letter.
 | **Combined, 60 trials** | **95.2%** | **96.5%** |
 | Mean processing time | 0.13 s | 0.27 s |
 
-Findings:
+`small.en` is the default: medium.en is only 1.3 points better at twice the processing time and GPU memory,
+which the VLN model also needs on the shared lab PC.
+
+### Delivery to VLN (6 Oct 2026, laptop, mock VLN receiver)
+
+| Method | Commands | Lost | Mean delay |
+|---|---|---|---|
+| HTTP send (push) | 15 | 0 | 14 ms |
+| HTTP fetch (poll every 0.2 s) | 4 | 0 | 87 ms |
+
+Lab-PC measurements will follow.
+
+### Findings
+
 - A 0.4 s post-roll fixed last-word clipping (single-speaker baseline rose from 96.0% to 99.2%).
 - Most remaining errors are similar-sounding word swaps (wait/write, desk/disk), which vary by speaker.
-- The single-word command "Stop." is the least reliable (lowest confidence, misheard once with both
-  models), so a non-voice stop is recommended.
+- **Short commands can lose their first word** ("Turn left." heard as "And left." or "Done Left").
+- The noise filter originally rejected short, clear commands such as "Turn left."; it now requires both a high
+  no-speech estimate and uncertain words (the same rule Whisper uses), covered by unit tests.
+- **Vocabulary hint tested and rejected (6 Oct):** priming the model with navigation words made it insert prompt
+  words into commands the operator never said ("Walk straight, turn left." for "Turn left."). An invented motion
+  command is less safe than a misheard word, so the hint is off.
+- "Stop" is short and has the lowest confidence; voice should not be the only way to stop the robot.
 - Numbers are transcribed as digits ("2 meters").
-
-`small.en` is the default: medium.en is only 1.3 points better at twice the processing time and GPU memory,
-which the VLN model also needs on the shared lab PC. Lab-condition results will follow.
 
 ## Setup
 
@@ -56,12 +73,12 @@ pip install -r requirements.txt
 
 ```bash
 sudo apt install python3-venv libportaudio2
-python3 -m venv .venv --system-site-packages   # makes ROS 2 (rclpy) visible inside the venv
+python3 -m venv .venv --system-site-packages   # makes ROS 2 (rclpy) visible inside the venv, if used
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The venv must use the same Python version as the installed ROS 2 distro (3.10 for Humble, 3.12 for Jazzy).
+If ROS 2 is used, the venv must use the same Python version as the ROS 2 distro (3.10 for Humble, 3.12 for Jazzy).
 On CPU-only machines, the two `nvidia-*` packages in `requirements.txt` can be skipped.
 
 The first run downloads the Whisper model into `models/` (about 480 MB for small.en).
@@ -78,8 +95,10 @@ The first run downloads the Whisper model into `models/` (about 480 MB for small
 | `python evaluate.py run --all` | Evaluate every speaker; report written to `outputs/eval/` |
 | `python evaluate.py run --all --model medium.en` | Compare another model size |
 | `python evaluate.py run --all --no-prestart-filter` | Evaluate raw audio without the pre-Start filter |
+| `python scripts/mock_vln.py` | Stand-in VLN receiving commands by HTTP send; reports delay and loss |
+| `python scripts/mock_vln.py --poll` | Stand-in VLN fetching commands from the console; reports delay and loss |
+| `python scripts/ros2_listener.py` | Receive commands over ROS 2; reports delay and loss |
 | `python scripts/check_env.py` | Check Python, GPU and microphone |
-| `python scripts/ros2_listener.py` | Receive commands over ROS 2 and measure delay and packet loss |
 | `python -m pytest` | Run unit tests |
 
 ## Configuration
@@ -89,15 +108,16 @@ All settings are in `config.yaml`. Relative paths resolve from the project folde
 | Setting | Purpose |
 |---|---|
 | `model.size` | `small.en` (default) or `medium.en` for higher accuracy |
-| `model.initial_prompt` | Optional vocabulary hint, e.g. object and room names used by VLN |
+| `model.initial_prompt` | Vocabulary hint; off, see Findings |
 | `audio.input_device` | `null` for the system default mic, or a device index |
 | `audio.pre_roll_seconds` / `post_roll_seconds` | Audio kept before Start and after Stop |
 | `gate.min_confidence` | 0 forwards everything; raise to reject low-confidence commands |
-| `output.sinks` | Any of `console`, `jsonl`, `ros2` |
-| `ros2.topic` | Topic VLN subscribes to |
+| `output.sinks` | Any of `console`, `jsonl`, `http`, `ros2` |
+| `http.url` | VLN's address for HTTP send |
+| `ros2.topic` | Topic for ROS 2 |
 | `ui.host` | `127.0.0.1` keeps the console on this machine only |
 
-Environment overrides: `STT_DEVICE=cpu`, `STT_MODEL_SIZE=medium.en`, `STT_INPUT_DEVICE=3`.
+Environment overrides: `STT_DEVICE=cpu`, `STT_MODEL_SIZE=medium.en`, `STT_INPUT_DEVICE=3`, `STT_HTTP_URL=...`.
 
 ## Output to VLN
 
@@ -116,29 +136,49 @@ Each command produces one JSON object. Key fields:
 
 Run `python -m stt.schema` to print a complete example.
 
-### ROS 2
+## Connecting to VLN
 
-Set `output.sinks: [console, jsonl, ros2]` in `config.yaml`, source ROS 2, then start the app.
-Accepted commands are published on `ros2.topic` as `std_msgs/String` containing the JSON.
+Only accepted commands are delivered by default. VLN should read `transcript` and act only when `accepted` is true.
 
-```bash
-source /opt/ros/<distro>/setup.bash
-python app.py
+### Option 1: HTTP send (STT pushes to VLN)
+
+VLN runs a web endpoint that accepts JSON (POST). Set its address and enable the output:
+
+```yaml
+output:
+  sinks: [console, jsonl, http]
+http:
+  url: http://127.0.0.1:5000/command
 ```
 
-To check delivery, in a second terminal:
+If VLN is unreachable, STT logs a warning and keeps working.
 
-```bash
-source /opt/ros/<distro>/setup.bash
-ros2 topic echo /stt/command            # raw messages
-python scripts/ros2_listener.py         # delay and packet loss; Ctrl+C for the summary
+### Option 2: HTTP fetch (VLN polls STT)
+
+No extra settings. While `app.py` is running, VLN requests:
+
+```
+GET http://127.0.0.1:8765/api/commands?since=<unix_time>   new accepted commands, oldest first
+GET http://127.0.0.1:8765/api/latest                       the most recent accepted command
 ```
 
-`scripts/ros2_listener.py` is also a minimal example of a subscriber: parse `msg.data` as JSON
-and act only when `accepted` is true.
+VLN keeps the `unix_time` of the last command it handled and passes it as `since`, so nothing is read twice.
 
-To check the network link between the lab PC and the robot: `ping -c 100 <robot-ip>`
-(reports packet loss and average delay).
+### Option 3: ROS 2
+
+```yaml
+output:
+  sinks: [console, jsonl, ros2]
+```
+
+Commands are published on `ros2.topic` as `std_msgs/String` containing the JSON. Source ROS 2 before starting the app.
+
+### Testing without VLN
+
+`scripts/mock_vln.py` (HTTP send or `--poll` for fetch) and `scripts/ros2_listener.py` (ROS 2) act as stand-in
+receivers and report delay and message loss. They are also minimal examples of receiver code.
+
+To check the network link between the lab PC and the robot: `ping -c 100 <robot-ip>`.
 
 ## Project structure
 
@@ -148,28 +188,33 @@ demo.py                 terminal demo
 evaluate.py             multi-speaker accuracy evaluation
 config.yaml             all settings
 eval/commands.txt       evaluation commands
+eval/vln_commands.txt   commands provided by the VLN team
 stt/
   config.py             loads config.yaml
   runtime.py            GPU/CPU selection, CUDA library setup
   audio.py              push-to-talk recording with pre-roll and post-roll
   transcriber.py        faster-whisper, VAD, pre-Start filter, confidence, safety gate
   schema.py             JSON message sent to VLN
-  sinks.py              console, JSON log, ROS 2 outputs
+  sinks.py              console, JSON log, HTTP, ROS 2 outputs
   pipeline.py           connects the modules; loads the model once
-  server.py             console web server and API
+  server.py             console web server, API and fetch endpoints
   web/index.html        console page
-tests/                  unit tests
+tests/
+  test_pre_start_filter.py
+  test_gate.py
 scripts/
   check_env.py          environment and microphone check
   quick_mic_test.py     first feasibility test
+  mock_vln.py           stand-in VLN for HTTP send and fetch
   ros2_listener.py      ROS 2 delay and packet-loss test
 ```
 
 ## Known limitations
 
 - Evaluated with three speakers in a quiet room; lab-condition testing pending.
-- The ROS 2 output and Ubuntu setup have not yet been tested on the lab PC.
-- The console has no login; it is bound to `127.0.0.1` so only the local machine can use it.
-- English only, single command per recording (no continuous streaming), per the project scope.
+- Ubuntu setup and delivery on the lab PC have not yet been tested.
+- Short commands can lose or mishear their first word.
 - "Stop" is short and the least reliable command; voice should not be the only way to stop the robot.
 - Accuracy varies by speaker and accent (91 to 99% across three speakers).
+- The console has no login; it is bound to `127.0.0.1` so only the local machine can use it.
+- English only, single command per recording (no continuous streaming), per the project scope.
