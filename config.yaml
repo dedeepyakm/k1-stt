@@ -8,7 +8,9 @@ model:
   download_dir: models
   language: en
   beam_size: 5
-  initial_prompt: ""      # optional vocabulary hint, e.g. "kitchen, lab, office, coffee"
+  #initial_prompt: ""      # optional vocabulary hint, e.g. "kitchen, lab, office, coffee"
+  #initial_prompt: "Walk straight, turn left, turn right, stop near the person or the ladder."
+  initial_prompt: ""      # tested 6 Oct: caused inserted words ("Walk straight"); kept off for safety
   word_timestamps: true   # per-word timing and confidence
 
 audio:
@@ -25,14 +27,21 @@ vad:
 
 gate:
   reject_empty: true          # never forward empty transcripts
-  max_no_speech_prob: 0.6     # above this, treat as noise, not speech
+  max_no_speech_prob: 0.6     # noise only if this is exceeded...
+  noise_max_logprob: -1.0     # ...AND the words are this uncertain (same rule as Whisper itself)
   min_confidence: 0.0         # 0 = forward everything (per Sep 23 meeting); raise later if needed
 
 output:
-  sinks: [console, jsonl]     # any of: console, jsonl, ros2
+  #sinks: [console, jsonl, http]   # any of: console, jsonl, http, ros2
+  sinks: [console, jsonl]   # add http when the VLN receiver is running
   jsonl_path: outputs/commands.jsonl
   save_audio: false           # keep recordings for debugging / evaluation only
   audio_dir: recordings
+
+http:
+  url: http://127.0.0.1:5000/command   # VLN's web address (placeholder, confirm with VLN team)
+  timeout_s: 1.0                       # give up after this, so a VLN problem never blocks STT
+  send_rejected: false                 # only accepted commands reach VLN
 
 ros2:
   topic: /stt/command         # confirm with VLN team

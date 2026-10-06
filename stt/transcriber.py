@@ -97,7 +97,8 @@ class Transcriber:
 
         avg_logprob, no_speech_prob = self._aggregate(segments)
         confidence = math.exp(avg_logprob) if avg_logprob is not None else 0.0
-        accepted, reason = self._gate(transcript, confidence, no_speech_prob)
+        accepted, reason = self._gate(self.gate_cfg, transcript, confidence,
+                                      avg_logprob, no_speech_prob)
 
         return STTResult(
             transcript=transcript,
@@ -151,13 +152,20 @@ class Transcriber:
         nsp = sum(s.no_speech_prob * d for s, d in zip(segments, durations)) / total
         return avg_lp, nsp
 
-    def _gate(self, transcript: str, confidence: float,
+    @staticmethod
+    def _gate(g: GateConfig, transcript: str, confidence: float,
+              avg_logprob: Optional[float],
               no_speech_prob: Optional[float]) -> Tuple[bool, Optional[str]]:
-        """Minimal safety gate: reject empty or noise; forward everything else."""
-        g = self.gate_cfg
+        """Minimal safety gate: reject empty audio or noise; forward everything else.
+
+        Noise needs BOTH a high no-speech estimate AND uncertain words. Short, clear
+        commands ("Turn left.", "Stop.") can have a high no-speech estimate on their
+        own, so that alone must not reject them. This matches Whisper's own rule.
+        """
         if g.reject_empty and not transcript:
             return False, "no_speech"
-        if no_speech_prob is not None and no_speech_prob > g.max_no_speech_prob:
+        if (no_speech_prob is not None and no_speech_prob > g.max_no_speech_prob
+                and avg_logprob is not None and avg_logprob < g.noise_max_logprob):
             return False, "likely_noise"
         if confidence < g.min_confidence:
             return False, "low_confidence"

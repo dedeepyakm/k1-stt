@@ -6,7 +6,7 @@ Maps directly to the operator UI:
 """
 from __future__ import annotations
 
-import warnings
+import sys
 from pathlib import Path
 from typing import Optional, Union
 
@@ -67,5 +67,6 @@ class STTPipeline:
             try:
                 sink.send(result)
             except Exception as e:   # one failing output must not stop the others
-                warnings.warn(f"{type(sink).__name__} failed: {e}")
+                print(f"  [WARNING] {type(sink).__name__} failed: {type(e).__name__}: {e}",
+                      file=sys.stderr)
         return result

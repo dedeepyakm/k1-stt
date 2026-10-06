@@ -50,6 +50,7 @@ class VadConfig:
 class GateConfig:
     reject_empty: bool = True
     max_no_speech_prob: float = 0.6
+    noise_max_logprob: float = -1.0
     min_confidence: float = 0.0
 
 
@@ -59,6 +60,13 @@ class OutputConfig:
     jsonl_path: Path = Path("outputs/commands.jsonl")
     save_audio: bool = False
     audio_dir: Path = Path("recordings")
+
+
+@dataclass
+class HttpConfig:
+    url: str = "http://127.0.0.1:5000/command"
+    timeout_s: float = 1.0
+    send_rejected: bool = False
 
 
 @dataclass
@@ -82,6 +90,7 @@ class Config:
     vad: VadConfig = field(default_factory=VadConfig)
     gate: GateConfig = field(default_factory=GateConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    http: HttpConfig = field(default_factory=HttpConfig)
     ros2: Ros2Config = field(default_factory=Ros2Config)
     ui: UiConfig = field(default_factory=UiConfig)
 
@@ -92,6 +101,7 @@ ENV_OVERRIDES = {
     "STT_MODEL_SIZE": ("model", "size"),
     "STT_DEVICE": ("model", "device"),
     "STT_INPUT_DEVICE": ("audio", "input_device"),
+    "STT_HTTP_URL": ("http", "url"),
 }
 
 

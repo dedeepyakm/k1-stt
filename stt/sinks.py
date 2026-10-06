@@ -40,6 +40,35 @@ class JsonlSink:
     def close(self) -> None:
         self._file.close()
 
+class HttpSink:
+    """POST each result as JSON to a web address, e.g. the VLN module's endpoint.
+
+    Uses only the Python standard library. If the receiver is down or slow,
+    send() raises after timeout_s; the pipeline turns that into a warning, so
+    STT keeps working.
+    """
+
+    def __init__(self, url: str, timeout_s: float = 1.0, send_rejected: bool = False) -> None:
+        self.url = url
+        self.timeout_s = timeout_s
+        self.send_rejected = send_rejected
+
+    def send(self, r: STTResult) -> None:
+        if not r.accepted and not self.send_rejected:
+            return
+        import urllib.request
+        request = urllib.request.Request(
+            self.url,
+            data=r.to_json().encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+            response.read()
+
+    def close(self) -> None:
+        pass
+
 
 class Ros2Sink:
     """Publish results to a ROS 2 topic as std_msgs/String containing the JSON."""
@@ -82,6 +111,8 @@ def build_sinks(cfg: Config) -> list:
             sinks.append(ConsoleSink())
         elif name == "jsonl":
             sinks.append(JsonlSink(cfg.output.jsonl_path))
+        elif name == "http":
+            sinks.append(HttpSink(cfg.http.url, cfg.http.timeout_s, cfg.http.send_rejected))    
         elif name == "ros2":
             sinks.append(Ros2Sink(cfg.ros2.topic, cfg.ros2.node_name,
                                   cfg.ros2.publish_rejected))
