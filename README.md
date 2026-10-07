@@ -164,7 +164,7 @@ GET http://127.0.0.1:8765/api/latest                       the most recent accep
 
 VLN keeps the `unix_time` of the last command it handled and passes it as `since`, so nothing is read twice.
 
-### Option 3: ROS 2
+### Option 3: ROS 2 (included for future use; not yet tested on hardware)
 
 ```yaml
 output:

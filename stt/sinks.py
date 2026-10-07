@@ -40,6 +40,7 @@ class JsonlSink:
     def close(self) -> None:
         self._file.close()
 
+
 class HttpSink:
     """POST each result as JSON to a web address, e.g. the VLN module's endpoint.
 
@@ -71,7 +72,12 @@ class HttpSink:
 
 
 class Ros2Sink:
-    """Publish results to a ROS 2 topic as std_msgs/String containing the JSON."""
+    """Publish results to a ROS 2 topic as std_msgs/String containing the JSON.
+
+    Included for future use with ROS 2 based systems; not yet tested on hardware.
+    ROS 2 is only imported when this sink is enabled, so machines without ROS
+    are unaffected.
+    """
 
     def __init__(self, topic: str, node_name: str, publish_rejected: bool = False) -> None:
         try:
@@ -112,7 +118,7 @@ def build_sinks(cfg: Config) -> list:
         elif name == "jsonl":
             sinks.append(JsonlSink(cfg.output.jsonl_path))
         elif name == "http":
-            sinks.append(HttpSink(cfg.http.url, cfg.http.timeout_s, cfg.http.send_rejected))    
+            sinks.append(HttpSink(cfg.http.url, cfg.http.timeout_s, cfg.http.send_rejected))
         elif name == "ros2":
             sinks.append(Ros2Sink(cfg.ros2.topic, cfg.ros2.node_name,
                                   cfg.ros2.publish_rejected))
