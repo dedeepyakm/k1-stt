@@ -1,2 +1,23 @@
-   # Commands provided by the VLN team (one per line). Grows as they send more.
-   Go straight and stop beside the ladder.
+# Approved commands from the VLN team (11 Oct 2026), one per line.
+# STT only forwards commands that match one of these. To add a command, add a line.
+Move straight and stand beside the orange ladder. Ensure to keep safe distance from the ladder.
+Move and stand beside the orange ladder. Ensure to keep safe distance from the ladder.
+Move and stand beside the ladder. Ensure to keep safe distance from the ladder.
+Move straight and stand beside the ladder. Ensure to keep safe distance from the ladder.
+Move and stand beside the orange ladder. Ensure to keep safe distance from the ladder. Wave your hand after you reach the final destination
+Move and stand beside the orange ladder. Ensure to keep safe distance from the ladder. Shake your hand after you reach the final destination
+Move and stand beside the white chair. Ensure to keep safe distance from the chair.
+Move and stand beside the white chair. Ensure to keep safe distance from the chair. Wave your hand after you reach the final destination
+Move and stand beside the white chair. Ensure to keep safe distance from the chair. Shake your hand after you reach the final destination
+Move and stand beside the human. Ensure to keep safe distance from the human.
+Move and stand beside the human. Ensure to keep safe distance from the human. Wave your hand after you reach the final destination
+Move and stand beside the human. Ensure to keep safe distance from the human. Shake your hand after you reach the final destination
+Move and stand beside the blue bag. Ensure to keep safe distance from the blue bag.
+Move and stand beside the blue bag. Ensure to keep safe distance from the blue bag. Wave your hand after you reach the final destination
+Move and stand beside the blue bag. Ensure to keep safe distance from the blue bag. Shake your hand after you reach the final destination
+Move and stand beside the blue bottle. Ensure to keep safe distance from the blue bottle.
+Move and stand beside the blue bottle. Ensure to keep safe distance from the blue bottle. Wave your hand after you reach the final destination
+Move and stand beside the blue bottle. Ensure to keep safe distance from the blue bottle. Shake your hand after you reach the final destination
+Move and stand beside the black bottle. Ensure to keep safe distance from the black bottle.
+Move and stand beside the black bottle. Ensure to keep safe distance from the black bottle. Wave your hand after you reach the final destination
+Move and stand beside the black bottle. Ensure to keep safe distance from the black bottle. Shake your hand after you reach the final destination

@@ -13,14 +13,22 @@ from stt.schema import STTResult
 
 class ConsoleSink:
     """One readable line per command."""
-
     def send(self, r: STTResult) -> None:
         status = "ACCEPTED" if r.accepted else f"REJECTED ({r.reject_reason})"
         print(f'  [{status}] "{r.transcript}"  '
               f"confidence={r.confidence:.2f}  time={r.processing_time_s:.2f}s")
         if r.discarded_text:
             print(f'  (ignored speech before Start: "{r.discarded_text}")')
-
+        if r.matched_command:
+            print(f'  (approved command: "{r.matched_command}", {r.match_distance} word(s) different)')
+    """
+    def send(self, r: STTResult) -> None:
+        status = "ACCEPTED" if r.accepted else f"REJECTED ({r.reject_reason})"
+        print(f'  [{status}] "{r.transcript}"  '
+              f"confidence={r.confidence:.2f}  time={r.processing_time_s:.2f}s")
+        if r.discarded_text:
+            print(f'  (ignored speech before Start: "{r.discarded_text}")')
+    """
     def close(self) -> None:
         pass
 

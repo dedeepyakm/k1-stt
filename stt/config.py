@@ -82,6 +82,22 @@ class UiConfig:
     port: int = 8765
     history_size: int = 20
 
+@dataclass
+class MatchingConfig:
+    enabled: bool = True
+    approved_commands_file: Path = Path("eval/vln_commands.txt")
+    max_error_ratio: float = 0.25
+    min_margin_words: int = 1
+
+
+@dataclass
+class VlnConfig:
+    enabled: bool = False
+    url: str = "http://127.0.0.1:8000"
+    request_timeout_s: float = 5.0
+    poll_interval_s: float = 1.0
+    max_task_seconds: float = 900.0
+
 
 @dataclass
 class Config:
@@ -89,6 +105,8 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     vad: VadConfig = field(default_factory=VadConfig)
     gate: GateConfig = field(default_factory=GateConfig)
+    matching: MatchingConfig = field(default_factory=MatchingConfig)
+    vln: VlnConfig = field(default_factory=VlnConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     http: HttpConfig = field(default_factory=HttpConfig)
     ros2: Ros2Config = field(default_factory=Ros2Config)
@@ -144,4 +162,5 @@ def load_config(path: Optional[Union[str, Path]] = None) -> Config:
     config.model.download_dir = _resolve_path(config.model.download_dir)
     config.output.jsonl_path = _resolve_path(config.output.jsonl_path)
     config.output.audio_dir = _resolve_path(config.output.audio_dir)
+    config.matching.approved_commands_file = _resolve_path(config.matching.approved_commands_file)
     return config

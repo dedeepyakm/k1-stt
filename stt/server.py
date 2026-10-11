@@ -3,15 +3,18 @@
 Uses only the Python standard library. Binds to 127.0.0.1 by default, so the
 console is reachable only from the machine it runs on.
 
+When vln.enabled is true, each accepted command is sent to the VLN server; the
+console then shows "Robot executing" and stays locked until VLN reports the task
+completed or failed (or the safety limit passes).
+
 API
     GET  /                          the console page
-    GET  /api/status                state, system info, recent commands
+    GET  /api/status                state, system info, current robot task, recent commands
     GET  /api/level                 live mic level and elapsed time (polled while listening)
     GET  /api/commands?since=<t>    accepted commands newer than unix time t, oldest first
-                                    (add &include_rejected=1 to include rejected ones)
     GET  /api/latest                the most recent accepted command, or {} if none
     POST /api/start                 Start Listening
-    POST /api/stop                  Stop Listening; returns the STTResult
+    POST /api/stop                  Stop Listening; returns the STTResult (+ robot task)
 """
 from __future__ import annotations
 
@@ -25,19 +28,24 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from stt.pipeline import STTPipeline
+from stt.vln_client import VlnClient
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
 class ConsoleState:
-    """Thread-safe wrapper around the pipeline for the web API."""
+    """Thread-safe wrapper around the pipeline (and VLN link) for the web API."""
 
     def __init__(self, pipeline: STTPipeline, history_size: int = 20) -> None:
         self.pipeline = pipeline
         self.history: deque = deque(maxlen=history_size)   # newest first
-        self.state = "idle"               # idle | listening | processing
+        self.state = "idle"               # idle | listening | processing | executing
+        self.task = None                  # the robot task for the latest sent command
         self._started_at = 0.0
         self._lock = threading.Lock()
+        v = pipeline.cfg.vln
+        self.vln_cfg = v
+        self.vln = VlnClient(v.url, v.request_timeout_s) if v.enabled else None
 
     def _elapsed(self) -> float:
         return round(time.monotonic() - self._started_at, 2) if self.state == "listening" else 0.0
@@ -47,11 +55,15 @@ class ConsoleState:
         return {
             "state": self.state,
             "elapsed_s": self._elapsed(),
+            "server_time": time.time(),
             "model": cfg.model.size,
             "device": t.device,
             "compute_type": t.compute_type,
             "outputs": list(cfg.output.sinks),
-            "ros2_topic": cfg.ros2.topic,
+            "matching": cfg.matching.enabled,
+            "vln_enabled": self.vln is not None,
+            "vln_url": cfg.vln.url,
+            "task": self.task,
             "max_record_seconds": cfg.audio.max_record_seconds,
             "history": list(self.history),
         }
@@ -67,10 +79,12 @@ class ConsoleState:
         return [r for r in items
                 if r["unix_time"] > since and (r["accepted"] or include_rejected)]
 
+    # ---- listening -----------------------------------------------------------------
     def start(self) -> dict:
         with self._lock:
             if self.state != "idle":
-                raise RuntimeError(f"Cannot start while {self.state}")
+                raise RuntimeError("Robot is still executing the previous command"
+                                   if self.state == "executing" else f"Cannot start while {self.state}")
             self.pipeline.start_listening()
             self.state = "listening"
             self._started_at = time.monotonic()
@@ -86,8 +100,66 @@ class ConsoleState:
         finally:
             with self._lock:
                 self.state = "idle"
+        if self.vln is not None and result["accepted"]:
+            self._dispatch(result)
+            result["task"] = self.task      # same object: later status updates show in history too
         self.history.appendleft(result)
         return result
+
+    # ---- robot task (VLN) ------------------------------------------------------------
+    def _new_task(self, command_id: str, text: str, status: str, message: str = "") -> dict:
+        now = time.time()
+        return {"command_id": command_id, "text": text, "status": status, "message": message,
+                "started": now, "ended": None if status == "running" else now}
+
+    def _dispatch(self, result: dict) -> None:
+        cid = result["command_id"]
+        text = result.get("matched_command") or result["transcript"]
+        try:
+            reply = self.vln.send(cid, text)
+        except Exception as e:
+            self.task = self._new_task(cid, text, "unreachable", f"{type(e).__name__}: {e}")
+            print(f"  [VLN] not reachable: {e}")
+            return
+        status = reply.get("status")
+        if status == "accepted":
+            with self._lock:
+                self.task = self._new_task(cid, text, "running")
+                self.state = "executing"
+            print(f'  [VLN] accepted, robot executing: "{text}"')
+            threading.Thread(target=self._watch, args=(cid,), daemon=True).start()
+        elif status == "busy":
+            self.task = self._new_task(cid, text, "busy", "Robot is still executing a previous command")
+            print("  [VLN] busy: command not started")
+        else:
+            self.task = self._new_task(cid, text, "error", f"Unexpected reply from VLN: {reply}")
+            print(f"  [VLN] unexpected reply: {reply}")
+
+    def _watch(self, command_id: str) -> None:
+        cfg = self.vln_cfg
+        started = time.monotonic()
+        while True:
+            time.sleep(cfg.poll_interval_s)
+            if time.monotonic() - started > cfg.max_task_seconds:
+                self._finish("timeout", f"No completion reported after {cfg.max_task_seconds / 60:.0f} min. "
+                                        "Check the robot.")
+                return
+            try:
+                st = self.vln.status()
+            except Exception:
+                continue                     # VLN briefly unreachable: keep checking
+            if st.get("command_id") == command_id and st.get("status") in ("completed", "failed"):
+                self._finish(st["status"], st.get("message", ""))
+                return
+
+    def _finish(self, status: str, message: str) -> None:
+        with self._lock:
+            if self.task is not None:
+                self.task["status"] = status
+                self.task["message"] = message
+                self.task["ended"] = time.time()
+            self.state = "idle"
+        print(f"  [VLN] {status}{': ' + message if message else ''}")
 
 
 def _make_handler(console: ConsoleState):

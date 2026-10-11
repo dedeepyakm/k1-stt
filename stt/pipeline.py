@@ -14,6 +14,7 @@ import numpy as np
 
 from stt.audio import load_audio_file, recorder_from_config, save_wav
 from stt.config import Config, load_config
+from stt.matcher import CommandMatcher
 from stt.schema import STTResult
 from stt.sinks import build_sinks
 from stt.transcriber import Transcriber
@@ -26,6 +27,10 @@ class STTPipeline:
         # Slow parts happen here, once.
         self.transcriber = Transcriber(c.model, c.vad, c.gate, c.audio.sample_rate)
         self.recorder = recorder_from_config(c.audio)
+        self.matcher = (CommandMatcher.from_file(c.matching.approved_commands_file,
+                                                 max_error_ratio=c.matching.max_error_ratio,
+                                                 min_margin_words=c.matching.min_margin_words)
+                        if c.matching.enabled else None)
         self.sinks = build_sinks(c)
 
     # ---- lifecycle -------------------------------------------------------------
@@ -60,6 +65,14 @@ class STTPipeline:
                 start_offset_s: float = 0.0) -> STTResult:
         result = self.transcriber.transcribe(audio, source=source,
                                              start_offset_s=start_offset_s)
+        if self.matcher is not None and result.accepted:
+            m = self.matcher.match(result.transcript)
+            result.match_distance = m.distance
+            if m.matched:
+                result.matched_command = m.command
+            else:
+                result.accepted = False
+                result.reject_reason = "ambiguous_command" if m.reason == "ambiguous" else "not_approved"
         if self.cfg.output.save_audio and source == "mic":
             save_wav(audio, self.cfg.output.audio_dir / f"{result.command_id}.wav",
                      self.cfg.audio.sample_rate)

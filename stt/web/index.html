@@ -24,6 +24,7 @@
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #9FE3BF; }
   .pill.listening .dot { background: #FF6B6B; animation: blink 1s infinite; }
   .pill.processing .dot { background: #FFD166; }
+  .pill.executing .dot { background: #B9B3F0; animation: blink 1s infinite; }
   .pill.offline .dot { background: #999; }
   @keyframes blink { 50% { opacity: .3; } }
 
@@ -39,9 +40,10 @@
   #talk { width: 170px; height: 170px; border-radius: 50%; border: none; cursor: pointer;
           background: var(--purple); color: #fff; font: inherit; font-size: 15px; font-weight: 600;
           display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-          box-shadow: 0 10px 30px rgba(83,74,183,.35); transition: transform .12s, background .2s; }
+          box-shadow: 0 10px 30px rgba(83,74,183,.35); transition: transform .12s, background .2s;
+          text-align: center; padding: 0 18px; }
   #talk:hover:not(:disabled) { transform: scale(1.03); }
-  #talk:disabled { cursor: progress; opacity: .75; }
+  #talk:disabled { cursor: not-allowed; opacity: .6; }
   #talk.listening { background: var(--red); animation: pulse 1.4s infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(194,59,59,.45); }
                      70% { box-shadow: 0 0 0 24px rgba(194,59,59,0); }
@@ -65,6 +67,14 @@
   .reason { color: var(--red); font-size: 14px; margin: 0 0 8px; }
   .note { font-size: 13px; color: var(--amber); background: var(--amber-bg);
           padding: 8px 12px; border-radius: 8px; margin: 10px 0; }
+  .sent { font-size: 13px; color: var(--navy); background: var(--lavender);
+          padding: 8px 12px; border-radius: 8px; margin: 10px 0; }
+  .task { display: none; margin: 12px 0 4px; padding: 10px 12px; border-radius: 8px;
+          font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .task.run { background: var(--lavender); color: var(--purple); }
+  .task.ok { background: var(--green-bg); color: var(--green); }
+  .task.bad { background: var(--red-bg); color: var(--red); }
+  .task.warn { background: var(--amber-bg); color: var(--amber); }
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
   @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } }
   .stat { background: var(--bg); border-radius: 10px; padding: 12px; }
@@ -87,7 +97,7 @@
   .mini { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .sys dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 14px; }
   .sys dt { color: var(--muted); }
-  .sys dd { margin: 0; font-weight: 500; }
+  .sys dd { margin: 0; font-weight: 500; word-break: break-word; }
   .error { display: none; background: var(--red-bg); color: var(--red); padding: 10px 14px;
            border-radius: 10px; font-size: 14px; margin-bottom: 14px; }
   footer { text-align: center; font-size: 12px; color: var(--muted); padding: 6px 20px 28px; }
@@ -117,7 +127,7 @@
         </button>
         <div class="timer" id="timer">0.0 s</div>
         <div class="meter" aria-hidden="true"><span id="level"></span></div>
-        <div class="hint">Press <kbd>Space</kbd> to start and stop · up to <span id="max">15</span> s per command</div>
+        <div class="hint">Press <kbd>Space</kbd> to start and stop · up to <span id="max">20</span> s per command</div>
       </div>
     </div>
 
@@ -137,14 +147,14 @@
       <dl>
         <dt>Model</dt><dd id="s-model">-</dd>
         <dt>Device</dt><dd id="s-device">-</dd>
-        <dt>Outputs</dt><dd id="s-outputs">-</dd>
+        <dt>Commands</dt><dd id="s-matching">-</dd>
         <dt>VLN link</dt><dd id="s-vln">-</dd>
       </dl>
     </div>
   </aside>
 </main>
 
-<footer>Runs fully offline on this machine. Audio is never sent to external services.</footer>
+<footer>Runs fully offline on this machine. Audio is never sent to external services. Emergency stop: tablet damp mode.</footer>
 
 <script>
   const $ = (id) => document.getElementById(id);
@@ -153,9 +163,13 @@
     likely_noise: "Only background noise detected",
     low_confidence: "Confidence below threshold",
     empty_audio: "No audio captured",
+    not_approved: "Not an approved command. Please say one of the listed commands.",
+    ambiguous_command: "Unclear which approved command was meant. Please repeat it.",
   };
-  const LABELS = { idle: "Ready", listening: "Listening", processing: "Transcribing", offline: "Offline" };
-  let state = "idle", maxSeconds = 15, poll = null, busy = false;
+  const LABELS = { idle: "Ready", listening: "Listening", processing: "Transcribing",
+                   executing: "Robot executing", offline: "Offline" };
+  let state = "idle", maxSeconds = 20, poll = null, execPoll = null, busy = false;
+  let vlnEnabled = false, shownId = null;
 
   async function api(path, method = "GET") {
     const res = await fetch(path, { method });
@@ -171,6 +185,9 @@
     return e;
   }
 
+  const norm = (s) => (s || "").toLowerCase().replace(/[^\w\s']/g, " ").split(/\s+/).filter(Boolean).join(" ");
+  const fmt = (s) => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
   function showError(msg) {
     $("error").textContent = msg || "";
     $("error").style.display = msg ? "block" : "none";
@@ -182,8 +199,10 @@
     $("pill-text").textContent = LABELS[s] || s;
     const btn = $("talk");
     btn.classList.toggle("listening", s === "listening");
-    btn.disabled = s === "processing" || s === "offline";
-    const label = s === "listening" ? "Stop Listening" : s === "processing" ? "Transcribing..." : "Start Listening";
+    btn.disabled = s === "processing" || s === "offline" || s === "executing";
+    const label = s === "listening" ? "Stop Listening"
+                : s === "processing" ? "Transcribing..."
+                : s === "executing" ? "Robot executing..." : "Start Listening";
     $("talk-label").textContent = label;
     btn.setAttribute("aria-label", label);
   }
@@ -203,18 +222,46 @@
     return box;
   }
 
+  function renderTask(task, now) {
+    const box = $("task");
+    if (!box) return;
+    if (!task || task.command_id !== shownId) { box.style.display = "none"; return; }
+    const secs = (task.ended || now) - task.started;
+    const views = {
+      running: ["run", `Robot executing... ${fmt(secs)}`],
+      completed: ["ok", `Completed in ${fmt(secs)}`],
+      failed: ["bad", `Failed: ${task.message || "no reason given"}`],
+      busy: ["warn", "Robot is busy with a previous command. Not started."],
+      unreachable: ["bad", "VLN server not reachable. Command not sent."],
+      timeout: ["warn", task.message],
+      error: ["bad", task.message],
+    };
+    const [cls, text] = views[task.status] || ["warn", task.status];
+    box.className = "task " + cls;
+    box.textContent = text;
+    box.style.display = "block";
+  }
+
   function renderResult(r) {
     const box = $("result");
     box.innerHTML = "";
+    shownId = r ? r.command_id : null;
     if (!r) {
       box.appendChild(el("p", "transcript empty", "No commands yet. Press Start Listening and speak a command."));
       return;
     }
+    const okText = vlnEnabled ? "ACCEPTED · sent to robot" : "ACCEPTED · sent to outputs";
     box.appendChild(el("span", "badge " + (r.accepted ? "ok" : "no"),
-      r.accepted ? "ACCEPTED · sent to outputs" : "REJECTED · not sent to VLN"));
+      r.accepted ? okText : "REJECTED · not sent to VLN"));
     box.appendChild(el("p", "transcript" + (r.transcript ? "" : " empty"), r.transcript || "(no transcript)"));
     if (!r.accepted) box.appendChild(el("p", "reason", REASONS[r.reject_reason] || r.reject_reason));
+    if (r.matched_command && norm(r.matched_command) !== norm(r.transcript)) {
+      box.appendChild(el("div", "sent", `Sent as approved command: "${r.matched_command}"`));
+    }
     if (r.discarded_text) box.appendChild(el("div", "note", `Ignored speech before Start: "${r.discarded_text}"`));
+    const task = el("div", "task");
+    task.id = "task";
+    box.appendChild(task);
 
     const stats = el("div", "stats");
     stats.append(
@@ -236,6 +283,7 @@
       box.appendChild(el("div", "legend",
         "Word colours show model confidence: green high, amber medium, red low. Hover a word for its score."));
     }
+    renderTask(r.task, Date.now() / 1000);
   }
 
   function renderHistory(items) {
@@ -252,6 +300,7 @@
       dot.style.background = r.accepted ? "var(--green)" : "var(--red)";
       meta.append(dot, el("span", "", new Date(r.timestamp).toLocaleTimeString()),
                   el("span", "", `${Math.round(r.confidence * 100)}%`));
+      if (r.task) meta.append(el("span", "", r.task.status));
       li.appendChild(meta);
       li.onclick = () => renderResult(r);
       ul.appendChild(li);
@@ -303,13 +352,17 @@
     try {
       const s = await api("/api/status");
       maxSeconds = s.max_record_seconds;
+      vlnEnabled = s.vln_enabled;
       $("max").textContent = maxSeconds;
       $("s-model").textContent = s.model;
       $("s-device").textContent = `${s.device.toUpperCase()} · ${s.compute_type}`;
-      $("s-outputs").textContent = s.outputs.join(", ");
-      $("s-vln").textContent = s.outputs.includes("ros2") ? `Publishing to ${s.ros2_topic}` : "Not connected (log only)";
+      $("s-matching").textContent = s.matching ? "Approved list only" : "Any command";
+      $("s-vln").textContent = s.vln_enabled ? `Sending to ${s.vln_url}` : "Not connected (log only)";
       renderHistory(s.history);
       setState(s.state);
+      renderTask(s.task, s.server_time);
+      if (s.state === "executing" && !execPoll) execPoll = setInterval(refresh, 1000);
+      if (s.state !== "executing" && execPoll) { clearInterval(execPoll); execPoll = null; }
       if (s.state === "listening") startPolling();
       return s;
     } catch (e) {

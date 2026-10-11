@@ -45,6 +45,8 @@ class STTResult:
     accepted: bool = False        # False = do not act on this command
     reject_reason: Optional[str] = None
     discarded_text: Optional[str] = None   # speech before Start, removed from transcript
+    matched_command: Optional[str] = None  # approved wording that is sent to VLN
+    match_distance: Optional[int] = None   # word differences between transcript and that command
 
     # Quality signals
     confidence: float = 0.0       # 0 to 1, from exp(avg_logprob)

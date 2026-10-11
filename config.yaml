@@ -31,6 +31,19 @@ gate:
   noise_max_logprob: -1.0     # ...AND the words are this uncertain (same rule as Whisper itself)
   min_confidence: 0.0         # 0 = forward everything (per Sep 23 meeting); raise later if needed
 
+matching:
+  enabled: true                                 # only approved commands are forwarded to VLN
+  approved_commands_file: eval/vln_commands.txt
+  max_error_ratio: 0.25                         # up to 25% word differences allowed
+  min_margin_words: 1                           # must be at least 1 word closer than any other command
+
+vln:
+  enabled: true                  # true = send approved commands to the VLN server and wait for the result
+  url: http://127.0.0.1:8000      # VLN FastAPI server (integration/vln_server.py)
+  request_timeout_s: 5            # VLN must accept a command within this
+  poll_interval_s: 1              # how often STT checks /status while the robot executes
+  max_task_seconds: 900           # safety limit (15 min); set to 2 to 3 times the longest real task
+
 output:
   #sinks: [console, jsonl, http]   # any of: console, jsonl, http, ros2
   sinks: [console, jsonl]   # add http when the VLN receiver is running
