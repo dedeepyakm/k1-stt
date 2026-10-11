@@ -8,15 +8,13 @@ model:
   download_dir: models
   language: en
   beam_size: 5
-  #initial_prompt: ""      # optional vocabulary hint, e.g. "kitchen, lab, office, coffee"
-  #initial_prompt: "Walk straight, turn left, turn right, stop near the person or the ladder."
   initial_prompt: ""      # tested 6 Oct: caused inserted words ("Walk straight"); kept off for safety
   word_timestamps: true   # per-word timing and confidence
 
 audio:
   sample_rate: 16000      # Whisper expects 16 kHz mono
   input_device: null      # null = system default mic, or a device index / name
-  max_record_seconds: 15  # safety cap on one recording
+  max_record_seconds: 30  # safety cap on one recording (long commands, slower speakers)
   pre_roll_seconds: 0.5   # audio kept from just before Start is pressed
   post_roll_seconds: 0.4  # keep recording briefly after Stop, so the last word is not cut
 
@@ -38,28 +36,27 @@ matching:
   min_margin_words: 1                           # must be at least 1 word closer than any other command
 
 vln:
-  enabled: true                  # true = send approved commands to the VLN server and wait for the result
+  enabled: false                  # INTEGRATION: set true, start the VLN server first, then app.py
   url: http://127.0.0.1:8000      # VLN FastAPI server (integration/vln_server.py)
   request_timeout_s: 5            # VLN must accept a command within this
   poll_interval_s: 1              # how often STT checks /status while the robot executes
   max_task_seconds: 900           # safety limit (15 min); set to 2 to 3 times the longest real task
 
 output:
-  #sinks: [console, jsonl, http]   # any of: console, jsonl, http, ros2
-  sinks: [console, jsonl]   # add http when the VLN receiver is running
+  sinks: [console, jsonl]     # any of: console, jsonl, http, ros2
   jsonl_path: outputs/commands.jsonl
   save_audio: false           # keep recordings for debugging / evaluation only
   audio_dir: recordings
 
 http:
-  url: http://127.0.0.1:5000/command   # VLN's web address (placeholder, confirm with VLN team)
-  timeout_s: 1.0                       # give up after this, so a VLN problem never blocks STT
-  send_rejected: false                 # only accepted commands reach VLN
+  url: http://127.0.0.1:5000/command   # generic HTTP output (not used for VLN; see vln: above)
+  timeout_s: 1.0
+  send_rejected: false
 
 ros2:
-  topic: /stt/command         # confirm with VLN team
+  topic: /stt/command         # kept for future use; not tested on hardware
   node_name: stt_publisher
-  publish_rejected: false     # only accepted commands reach VLN
+  publish_rejected: false
 
 ui:
   host: 127.0.0.1             # this machine only; 0.0.0.0 would expose it on the network

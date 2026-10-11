@@ -4,18 +4,49 @@ Local, offline speech-to-text for voice-based Vision-Language Navigation (VLN) o
 Part of ICT Capstone PG-S2-43, AIML Robotics Lab, University of Adelaide.
 
 An operator presses **Start Listening**, speaks a navigation command, and presses **Stop Listening**.
-The command is transcribed on the local machine and handed to the VLN module as a structured JSON message.
+The command is transcribed on the local machine, checked against the approved command list, and sent to the
+VLN server. The console then shows the robot executing and the result before allowing the next command.
 
 ## Features
 
 - **Fully local and offline.** faster-whisper runs on the machine itself; no audio leaves it and no API keys are needed.
-- **Operator console.** A browser page with Start/Stop Listening, live mic level, transcript, confidence, per-word confidence and command history.
+- **Operator console.** Start/Stop Listening, live mic level, transcript, per-word confidence, robot status and command history.
+- **Approved commands only.** Each transcript is matched to the VLN team's command list; the approved wording is sent,
+  which also corrects small transcription errors. Unclear or unlisted commands are blocked.
+- **One command at a time.** After sending, the console locks until VLN reports the task completed or failed.
 - **Push-to-talk with pre-roll and post-roll**, so first and last words are not clipped.
-- **Pre-Start filter.** Speech that ended before Start was pressed is removed from the command and logged.
+- **Pre-Start filter** removes speech said before Start was pressed.
 - **Voice activity detection** trims silence around each command.
-- **Safety gate.** Empty audio and noise are rejected and never sent to VLN; everything else is forwarded with its confidence score.
-- **Three ways to connect to VLN:** HTTP send, HTTP fetch, or ROS 2. Chosen in `config.yaml`, no code changes.
+- **Safety gate.** Empty audio and noise are rejected and never sent.
 - **Cross-platform.** The same code runs on Windows and Ubuntu; GPU is used automatically when available, with CPU fallback.
+
+## How it connects to VLN
+
+STT and VLN are two separate programs on the lab PC, talking over HTTP:
+
+1. STT sends `POST /command` with `{"command_id": "...", "text": "<approved command>"}`.
+2. The VLN server replies at once with `accepted` (or `busy`) and runs `main(text)` in the background.
+3. STT checks `GET /status` every second until it reports `completed` or `failed`.
+
+The VLN side only needs `integration/vln_server.py`, with its placeholder `main()` replaced by the real one.
+Full details are in the STT and VLN Integration Guide shared with the team.
+
+### Running the integration
+
+1. In `config.yaml`, set `enabled: true` under `vln:` (it is off by default, so the console also works without VLN).
+2. Start the VLN server:
+```bash
+   uvicorn vln_server:app --host 127.0.0.1 --port 8000          # inside the VLN project
+```
+   To test without the real VLN, from this project (placeholder `main()` that "walks" for 10 seconds):
+```bash
+   pip install fastapi uvicorn
+   uvicorn vln_server:app --app-dir integration --host 127.0.0.1 --port 8000
+```
+3. Start the console: `python app.py`.
+
+Tested end to end on 12 Oct 2026 with the placeholder: commands were sent, the console stayed locked while
+"executing", and showed "Completed in 0:10"; unapproved commands and an unreachable VLN server were handled.
 
 ## Evaluation
 
@@ -23,8 +54,7 @@ The command is transcribed on the local machine and handed to the VLN module as 
 
 20 scripted navigation commands per speaker, 3 speakers (A, B, C), quiet room, laptop microphone.
 Word accuracy = 1 - WER, after lowercasing and removing punctuation. Target: at least 80% per speaker.
-The evaluation applies the same pre-Start filter as the live console. Participants gave consent;
-recordings stay local and are referred to only by letter.
+Participants gave consent; recordings stay local and are referred to only by letter.
 
 | Speaker | small.en (default) | medium.en |
 |---|---|---|
@@ -34,29 +64,20 @@ recordings stay local and are referred to only by letter.
 | **Combined, 60 trials** | **95.2%** | **96.5%** |
 | Mean processing time | 0.13 s | 0.27 s |
 
-`small.en` is the default: medium.en is only 1.3 points better at twice the processing time and GPU memory,
-which the VLN model also needs on the shared lab PC.
-
-### Delivery to VLN (6 Oct 2026, laptop, mock VLN receiver)
-
-| Method | Commands | Lost | Mean delay |
-|---|---|---|---|
-| HTTP send (push) | 15 | 0 | 14 ms |
-| HTTP fetch (poll every 0.2 s) | 4 | 0 | 87 ms |
-
-Lab-PC measurements will follow.
+`small.en` is the default: medium.en is only 1.3 points better at twice the processing time and GPU memory.
+Evaluation on the VLN team's commands in the lab will follow.
 
 ### Findings
 
 - A 0.4 s post-roll fixed last-word clipping (single-speaker baseline rose from 96.0% to 99.2%).
-- Most remaining errors are similar-sounding word swaps (wait/write, desk/disk), which vary by speaker.
-- **Short commands can lose their first word** ("Turn left." heard as "And left." or "Done Left").
-- The noise filter originally rejected short, clear commands such as "Turn left."; it now requires both a high
-  no-speech estimate and uncertain words (the same rule Whisper uses), covered by unit tests.
-- **Vocabulary hint tested and rejected (6 Oct):** priming the model with navigation words made it insert prompt
-  words into commands the operator never said ("Walk straight, turn left." for "Turn left."). An invented motion
-  command is less safe than a misheard word, so the hint is off.
-- "Stop" is short and has the lowest confidence; voice should not be the only way to stop the robot.
+- Approved-command matching corrects transcription errors before they reach the robot: "It's sure to keep safe
+  distance" was sent as the approved "Ensure to keep safe distance" (12 Oct).
+- Commands that differ only by object ("blue bag" vs "blue bottle") are kept apart: a transcript equally close to
+  two approved commands is blocked rather than guessed.
+- The noise filter originally rejected short, clear commands; it now requires both a high no-speech estimate and
+  uncertain words (the same rule Whisper uses).
+- A vocabulary hint was tested and rejected (6 Oct): it inserted words the operator never said.
+- Short commands can lose their first word; the long VLN commands are less affected.
 - Numbers are transcribed as digits ("2 meters").
 
 ## Setup
@@ -69,18 +90,16 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Ubuntu (lab PC, not yet verified)
+### Ubuntu (lab PC)
 
 ```bash
 sudo apt install python3-venv libportaudio2
-python3 -m venv .venv --system-site-packages   # makes ROS 2 (rclpy) visible inside the venv, if used
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If ROS 2 is used, the venv must use the same Python version as the ROS 2 distro (3.10 for Humble, 3.12 for Jazzy).
 On CPU-only machines, the two `nvidia-*` packages in `requirements.txt` can be skipped.
-
 The first run downloads the Whisper model into `models/` (about 480 MB for small.en).
 
 ## Usage
@@ -89,17 +108,12 @@ The first run downloads the Whisper model into `models/` (about 480 MB for small
 |---|---|
 | `python app.py` | Operator console at http://127.0.0.1:8765 |
 | `python demo.py` | Terminal demo: Enter to start, Enter to stop |
-| `python demo.py file.wav` | Transcribe audio files |
-| `python evaluate.py record --speaker a` | Record the 20 evaluation commands for speaker A (resumable) |
-| `python evaluate.py record --speaker a --redo 5` | Re-record one trial |
+| `python evaluate.py record --speaker a` | Record the evaluation commands for speaker A (resumable) |
 | `python evaluate.py run --all` | Evaluate every speaker; report written to `outputs/eval/` |
 | `python evaluate.py run --all --model medium.en` | Compare another model size |
-| `python evaluate.py run --all --no-prestart-filter` | Evaluate raw audio without the pre-Start filter |
-| `python scripts/mock_vln.py` | Stand-in VLN receiving commands by HTTP send; reports delay and loss |
-| `python scripts/mock_vln.py --poll` | Stand-in VLN fetching commands from the console; reports delay and loss |
-| `python scripts/ros2_listener.py` | Receive commands over ROS 2; reports delay and loss |
+| `uvicorn vln_server:app --app-dir integration --port 8000` | Placeholder VLN server for testing |
 | `python scripts/check_env.py` | Check Python, GPU and microphone |
-| `python -m pytest` | Run unit tests |
+| `python -m pytest` | Run unit tests (15) |
 
 ## Configuration
 
@@ -108,113 +122,65 @@ All settings are in `config.yaml`. Relative paths resolve from the project folde
 | Setting | Purpose |
 |---|---|
 | `model.size` | `small.en` (default) or `medium.en` for higher accuracy |
-| `model.initial_prompt` | Vocabulary hint; off, see Findings |
-| `audio.input_device` | `null` for the system default mic, or a device index |
+| `audio.max_record_seconds` | Safety cap on one recording (30 s) |
 | `audio.pre_roll_seconds` / `post_roll_seconds` | Audio kept before Start and after Stop |
-| `gate.min_confidence` | 0 forwards everything; raise to reject low-confidence commands |
-| `output.sinks` | Any of `console`, `jsonl`, `http`, `ros2` |
-| `http.url` | VLN's address for HTTP send |
-| `ros2.topic` | Topic for ROS 2 |
+| `matching.enabled` | Only forward commands from the approved list |
+| `matching.approved_commands_file` | The approved list (`eval/vln_commands.txt`); one command per line |
+| `vln.enabled` | Send approved commands to the VLN server and wait for the result |
+| `vln.url` | VLN server address (`http://127.0.0.1:8000`) |
+| `vln.max_task_seconds` | Safety limit for one robot task (15 min) |
 | `ui.host` | `127.0.0.1` keeps the console on this machine only |
 
-Environment overrides: `STT_DEVICE=cpu`, `STT_MODEL_SIZE=medium.en`, `STT_INPUT_DEVICE=3`, `STT_HTTP_URL=...`.
+To add an approved command, add a line to `eval/vln_commands.txt` and restart the console.
 
-## Output to VLN
+## Message format
 
-Each command produces one JSON object. Key fields:
+Each command is logged to `outputs/commands.jsonl` as one JSON object. Key fields:
 
 | Field | Meaning |
 |---|---|
-| `transcript` | The recognised command |
-| `accepted` | `false` means do not act on it |
-| `reject_reason` | `no_speech`, `likely_noise`, `low_confidence` or `empty_audio` |
+| `transcript` | What was recognised |
+| `matched_command` | The approved wording sent to VLN |
+| `accepted` | `false` means it was not sent |
+| `reject_reason` | `no_speech`, `likely_noise`, `not_approved`, `ambiguous_command`, ... |
 | `confidence` | 0 to 1, from the model's average token log-probability |
-| `timestamp`, `unix_time` | When the transcript was produced (UTC) |
-| `command_id` | Unique ID for each command |
+| `command_id` | Unique ID, shared with VLN for tracing |
 | `words` | Each word with timing and confidence |
-| `discarded_text` | Speech before Start that was removed |
 
 Run `python -m stt.schema` to print a complete example.
-
-## Connecting to VLN
-
-Only accepted commands are delivered by default. VLN should read `transcript` and act only when `accepted` is true.
-
-### Option 1: HTTP send (STT pushes to VLN)
-
-VLN runs a web endpoint that accepts JSON (POST). Set its address and enable the output:
-
-```yaml
-output:
-  sinks: [console, jsonl, http]
-http:
-  url: http://127.0.0.1:5000/command
-```
-
-If VLN is unreachable, STT logs a warning and keeps working.
-
-### Option 2: HTTP fetch (VLN polls STT)
-
-No extra settings. While `app.py` is running, VLN requests:
-
-```
-GET http://127.0.0.1:8765/api/commands?since=<unix_time>   new accepted commands, oldest first
-GET http://127.0.0.1:8765/api/latest                       the most recent accepted command
-```
-
-VLN keeps the `unix_time` of the last command it handled and passes it as `since`, so nothing is read twice.
-
-### Option 3: ROS 2 (included for future use; not yet tested on hardware)
-
-```yaml
-output:
-  sinks: [console, jsonl, ros2]
-```
-
-Commands are published on `ros2.topic` as `std_msgs/String` containing the JSON. Source ROS 2 before starting the app.
-
-### Testing without VLN
-
-`scripts/mock_vln.py` (HTTP send or `--poll` for fetch) and `scripts/ros2_listener.py` (ROS 2) act as stand-in
-receivers and report delay and message loss. They are also minimal examples of receiver code.
-
-To check the network link between the lab PC and the robot: `ping -c 100 <robot-ip>`.
 
 ## Project structure
 
 ```
-app.py                  operator console entry point
-demo.py                 terminal demo
-evaluate.py             multi-speaker accuracy evaluation
-config.yaml             all settings
-eval/commands.txt       evaluation commands
-eval/vln_commands.txt   commands provided by the VLN team
+app.py                     operator console entry point
+demo.py                    terminal demo
+evaluate.py                multi-speaker accuracy evaluation
+config.yaml                all settings
+eval/commands.txt          evaluation commands
+eval/vln_commands.txt      approved commands from the VLN team
+integration/vln_server.py  VLN server template (FastAPI) for the VLN team
 stt/
-  config.py             loads config.yaml
-  runtime.py            GPU/CPU selection, CUDA library setup
-  audio.py              push-to-talk recording with pre-roll and post-roll
-  transcriber.py        faster-whisper, VAD, pre-Start filter, confidence, safety gate
-  schema.py             JSON message sent to VLN
-  sinks.py              console, JSON log, HTTP, ROS 2 outputs
-  pipeline.py           connects the modules; loads the model once
-  server.py             console web server, API and fetch endpoints
-  web/index.html        console page
-tests/
-  test_pre_start_filter.py
-  test_gate.py
-scripts/
-  check_env.py          environment and microphone check
-  quick_mic_test.py     first feasibility test
-  mock_vln.py           stand-in VLN for HTTP send and fetch
-  ros2_listener.py      ROS 2 delay and packet-loss test
+  config.py                loads config.yaml
+  runtime.py               GPU/CPU selection, CUDA library setup
+  audio.py                 push-to-talk recording with pre-roll and post-roll
+  transcriber.py           faster-whisper, VAD, pre-Start filter, confidence, safety gate
+  matcher.py               approved-command matching
+  vln_client.py            sends commands to VLN and reads its status
+  schema.py                JSON message format
+  sinks.py                 console, JSON log, HTTP, ROS 2 outputs
+  pipeline.py              connects the modules; loads the model once
+  server.py                console web server, robot status, API
+  web/index.html           console page
+tests/                     unit tests: pre-Start filter, safety gate, command matching
+scripts/                   environment check, mock receivers, ROS 2 listener
 ```
 
 ## Known limitations
 
-- Evaluated with three speakers in a quiet room; lab-condition testing pending.
-- Ubuntu setup and delivery on the lab PC have not yet been tested.
-- Short commands can lose or mishear their first word.
-- "Stop" is short and the least reliable command; voice should not be the only way to stop the robot.
-- Accuracy varies by speaker and accent (91 to 99% across three speakers).
+- Not yet tested on the lab PC or with the real VLN `main()`; lab testing is planned before demo week.
+- Accuracy evaluated with three speakers in a quiet room; lab-condition testing pending.
+- A transcription error that turns one approved command into another (e.g. "bag" heard as "bottle") cannot be caught.
+- Voice is not used to stop the robot mid-task; the tablet's damp mode is the emergency stop.
 - The console has no login; it is bound to `127.0.0.1` so only the local machine can use it.
-- English only, single command per recording (no continuous streaming), per the project scope.
+- English only, one command per recording.
+- The ROS 2 output is kept for future use and has not been tested on hardware.
